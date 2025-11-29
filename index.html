@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechStats - Анализ технологий в вакансиях</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 0.95em;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="number"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .vacancies-list {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+        }
+
+        .vacancies-list h3 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .vacancy-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            transition: transform 0.2s;
+        }
+
+        .vacancy-item:hover {
+            transform: translateX(5px);
+        }
+
+        .vacancy-item h4 {
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .vacancy-item a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+
+        .vacancy-item a:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #ff4444;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .main-card {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 TechStats</h1>
+            <p>Анализ востребованности технологий в IT-вакансиях</p>
+        </div>
+
+        <div class="main-card">
+            <form id="analysisForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="vacancyTitle">Название вакансии</label>
+                        <input type="text" id="vacancyTitle" placeholder="Например: Data Engineer" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="technology">Технология</label>
+                        <input type="text" id="technology" placeholder="Например: Python" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="area">Регион (ID)</label>
+                        <input type="number" id="area" value="113" min="1">
+                        <small style="color: #666; font-size: 0.85em;">113 - Россия, 1 - Москва</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="maxPages">Макс. страниц</label>
+                        <input type="number" id="maxPages" value="10" min="1" max="20">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="exactSearch" checked>
+                        <label for="exactSearch" style="margin-bottom: 0;">Точный поиск по названию вакансии</label>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn" id="submitBtn">Начать анализ</button>
+            </form>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Анализируем вакансии... Это может занять несколько минут.</p>
+            </div>
+
+            <div id="error" class="error hidden"></div>
+
+            <div id="results" class="results hidden">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="value" id="totalVacancies">0</div>
+                        <div class="label">Всего вакансий</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value" id="techVacancies">0</div>
+                        <div class="label">С технологией</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value" id="percentage">0%</div>
+                        <div class="label">Процент вхождения</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="value" id="requestsCount">0</div>
+                        <div class="label">API запросов</div>
+                    </div>
+                </div>
+
+                <div class="vacancies-list">
+                    <h3 id="listTitle">Вакансии с технологией</h3>
+                    <div id="vacanciesList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+
+        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = {
+                vacancy_title: document.getElementById('vacancyTitle').value,
+                technology: document.getElementById('technology').value,
+                exact_search: document.getElementById('exactSearch').checked,
+                area: parseInt(document.getElementById('area').value),
+                max_pages: parseInt(document.getElementById('maxPages').value)
+            };
+
+            // Показываем индикатор загрузки
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('submitBtn').disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка при анализе');
+                }
+
+                const data = await response.json();
+                displayResults(data);
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('submitBtn').disabled = false;
+            }
+        });
+
+        function displayResults(data) {
+            document.getElementById('totalVacancies').textContent = data.total_vacancies;
+            document.getElementById('techVacancies').textContent = data.tech_vacancies;
+            document.getElementById('percentage').textContent = data.tech_percentage.toFixed(2) + '%';
+            document.getElementById('requestsCount').textContent = data.request_stats.total_requests;
+
+            document.getElementById('listTitle').textContent = 
+                `Вакансии с технологией "${data.technology}" (${data.tech_vacancies})`;
+
+            const vacanciesList = document.getElementById('vacanciesList');
+            vacanciesList.innerHTML = '';
+
+            if (data.vacancies_with_tech.length === 0) {
+                vacanciesList.innerHTML = '<p style="text-align: center; color: #666;">Вакансии с указанной технологией не найдены</p>';
+            } else {
+                data.vacancies_with_tech.forEach((vacancy, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'vacancy-item';
+                    item.innerHTML = `
+                        <h4>${index + 1}. ${vacancy.name}</h4>
+                        <a href="${vacancy.url}" target="_blank">Открыть вакансию →</a>
+                    `;
+                    vacanciesList.appendChild(item);
+                });
+            }
+
+            document.getElementById('results').classList.remove('hidden');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = `Ошибка: ${message}`;
+            errorDiv.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
