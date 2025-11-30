@@ -137,13 +137,36 @@
             height: 100%;
             background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
             width: 0%;
-            transition: width 0.5s ease;
+            transition: width 0.8s cubic-bezier(0.4, 0.0, 0.2, 1);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 600;
             font-size: 0.9em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.3),
+                transparent
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
         }
 
         .progress-message {
@@ -156,16 +179,22 @@
 
         .progress-details {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 10px;
             margin-top: 15px;
         }
 
         .progress-detail {
             background: white;
-            padding: 10px;
+            padding: 12px;
             border-radius: 8px;
             text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .progress-detail:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .progress-detail .label {
@@ -178,6 +207,21 @@
             font-size: 1.2em;
             font-weight: 700;
             color: #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .progress-detail .value.updating {
+            color: #4caf50;
+            transform: scale(1.1);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .progress-detail.active {
+            animation: pulse 1.5s ease-in-out infinite;
         }
 
         .results {
@@ -383,6 +427,8 @@
     <script>
         const WS_URL = 'ws://localhost:8000/ws/analyze';
         let websocket = null;
+        let startTime = null;
+        let progressInterval = null;
 
         document.getElementById('analysisForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -404,6 +450,11 @@
                 websocket.close();
             }
 
+            // Очищаем предыдущий интервал
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+
             // Показываем прогресс-бар и сбрасываем его
             document.getElementById('progress').classList.remove('hidden');
             document.getElementById('results').classList.add('hidden');
@@ -413,6 +464,9 @@
             // Сбрасываем прогресс
             updateProgressBar(0, 'Подключение к серверу...');
             document.getElementById('progressDetails').innerHTML = '';
+
+            // Запускаем таймер
+            startTime = Date.now();
 
             // Создаем WebSocket соединение
             websocket = new WebSocket(WS_URL);
@@ -455,38 +509,71 @@
             // Обновляем детали прогресса в зависимости от этапа
             if (stage === 'fetching_vacancies') {
                 const details = {};
-                if (message.found !== undefined) details['Найдено'] = message.found;
-                if (message.pages !== undefined) details['Страниц'] = message.pages;
+                if (message.found !== undefined) details['Найдено вакансий'] = message.found;
+                if (message.total_pages !== undefined) details['Всего страниц'] = message.total_pages;
+                if (message.completed_pages !== undefined) details['Загружено страниц'] = `${message.completed_pages}/${message.total_pages}`;
+                if (message.loaded_vacancies !== undefined) details['Загружено объявлений'] = message.loaded_vacancies;
                 if (message.real_requests !== undefined) details['Реальных запросов'] = message.real_requests;
                 if (message.cached_requests !== undefined) details['Из кэша'] = message.cached_requests;
                 updateProgressDetails(details);
             } else if (stage === 'vacancies_loaded') {
                 const details = {
-                    'Загружено вакансий': message.total_vacancies || 0
+                    'Загружено вакансий': message.total_vacancies || 0,
+                    'Статус': '✅ Переходим к анализу'
                 };
                 updateProgressDetails(details);
             } else if (stage === 'analyzing') {
-                const details = {
-                    'Обработано': `${message.processed || 0}/${message.total || 0}`,
-                    'Найдено с технологией': message.found_with_tech || 0
-                };
+                const details = {};
+                
+                if (message.processed !== undefined && message.total !== undefined) {
+                    details['Обработано'] = `${message.processed}/${message.total}`;
+                    const percentage = ((message.processed / message.total) * 100).toFixed(1);
+                    details['Прогресс анализа'] = `${percentage}%`;
+                    
+                    // Рассчитываем скорость обработки
+                    const elapsed = (Date.now() - startTime) / 1000; // секунды
+                    const speed = (message.processed / elapsed).toFixed(1);
+                    details['Скорость'] = `${speed} вак/сек`;
+                    
+                    // Оценка оставшегося времени
+                    const remaining = message.total - message.processed;
+                    const eta = (remaining / parseFloat(speed)).toFixed(0);
+                    if (eta < 120) {
+                        details['Осталось'] = `~${eta} сек`;
+                    } else {
+                        details['Осталось'] = `~${(eta / 60).toFixed(1)} мин`;
+                    }
+                }
+                
+                if (message.found_with_tech !== undefined) {
+                    details['Найдено с технологией'] = message.found_with_tech;
+                }
 
                 if (message.real_requests !== undefined) {
                     details['Реальных запросов'] = message.real_requests;
-                    details['Из кэша'] = message.cached_requests || 0;
-                    
-                    if (message.cache_hit_rate !== undefined) {
-                        details['Попадание в кэш'] = `${message.cache_hit_rate}%`;
-                    }
+                }
+                
+                if (message.cached_requests !== undefined) {
+                    details['Из кэша'] = message.cached_requests;
+                }
+                
+                if (message.cache_hit_rate !== undefined) {
+                    details['Попадание в кэш'] = `${message.cache_hit_rate}%`;
                 }
 
                 updateProgressDetails(details);
             } else if (stage === 'completed') {
                 updateProgressDetails({
                     'Технология найдена в': `${message.tech_vacancies || 0}/${message.total_vacancies || 0}`,
-                    'Статус': '✅ Завершено'
+                    'Статус': '✅ Завершено',
+                    'Время выполнения': `${((Date.now() - startTime) / 1000).toFixed(1)} сек`
                 });
             } else if (stage === 'finished') {
+                // Очищаем интервал
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                }
+                
                 displayResults(message.data);
                 document.getElementById('progress').classList.add('hidden');
                 // Активируем кнопку
@@ -512,11 +599,26 @@
 
         function updateProgressDetails(details) {
             const container = document.getElementById('progressDetails');
+            
+            // Получаем текущие значения для анимации изменений
+            const currentValues = {};
+            container.querySelectorAll('.progress-detail').forEach(detail => {
+                const label = detail.querySelector('.label').textContent;
+                const value = detail.querySelector('.value').textContent;
+                currentValues[label] = value;
+            });
+            
             container.innerHTML = '';
 
             for (const [label, value] of Object.entries(details)) {
                 const detail = document.createElement('div');
                 detail.className = 'progress-detail';
+                
+                // Проверяем изменилось ли значение
+                const hasChanged = currentValues[label] && currentValues[label] !== String(value);
+                if (hasChanged) {
+                    detail.classList.add('active');
+                }
                 
                 // Добавляем индикатор кэша если это процент попадания
                 if (label === 'Попадание в кэш') {
@@ -525,14 +627,14 @@
                     const cacheClass = rate >= 50 ? 'cache-indicator' : 'cache-indicator low';
                     detail.innerHTML = `
                         <div class="label">${label}</div>
-                        <div class="value">
+                        <div class="value ${hasChanged ? 'updating' : ''}">
                             <span class="${cacheClass}">🎯 ${value}</span>
                         </div>
                     `;
                 } else {
                     detail.innerHTML = `
                         <div class="label">${label}</div>
-                        <div class="value">${value}</div>
+                        <div class="value ${hasChanged ? 'updating' : ''}">${value}</div>
                     `;
                 }
                 
@@ -591,6 +693,9 @@
         function resetUI() {
             document.getElementById('progress').classList.add('hidden');
             document.getElementById('submitBtn').disabled = false;
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
             if (websocket) {
                 websocket.close();
                 websocket = null;

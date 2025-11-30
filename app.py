@@ -216,34 +216,33 @@ async def get_vacancies_with_progress(search_text: str, area: int, max_pages: in
         
         if total_pages > 1:
             completed_pages = 1
+            pages_to_load = list(range(1, total_pages))
             
-            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                future_to_page = {
-                    executor.submit(fetch_single_page, search_text, area, 100, page): page 
-                    for page in range(1, total_pages)
-                }
-                
-                for future in concurrent.futures.as_completed(future_to_page):
-                    try:
-                        page_vacancies = future.result()
-                        vacancies.extend(page_vacancies)
-                        completed_pages += 1
-                        
-                        progress = 10 + (40 * completed_pages / total_pages)
-                        real_requests, cached_requests = get_request_count()
-                        
-                        print(f"Загружена страница {completed_pages}/{total_pages}, всего вакансий: {len(vacancies)}")
-                        
-                        await manager.send_message({
-                            "stage": "fetching_vacancies",
-                            "message": f"Загружено страниц: {completed_pages}/{total_pages}",
-                            "progress": int(progress),
-                            "real_requests": real_requests,
-                            "cached_requests": cached_requests
-                        }, websocket)
-                        
-                    except Exception as e:
-                        print(f"Ошибка при загрузке страницы: {e}")
+            # Загружаем страницы последовательно с прогрессом
+            for page in pages_to_load:
+                try:
+                    page_vacancies = fetch_single_page(search_text, area, 100, page)
+                    vacancies.extend(page_vacancies)
+                    completed_pages += 1
+                    
+                    progress = 10 + (40 * completed_pages / total_pages)
+                    real_requests, cached_requests = get_request_count()
+                    
+                    print(f"Загружена страница {completed_pages}/{total_pages}, всего вакансий: {len(vacancies)}")
+                    
+                    await manager.send_message({
+                        "stage": "fetching_vacancies",
+                        "message": f"Загружено страниц: {completed_pages}/{total_pages}, всего вакансий: {len(vacancies)}",
+                        "progress": int(progress),
+                        "completed_pages": completed_pages,
+                        "total_pages": total_pages,
+                        "loaded_vacancies": len(vacancies),
+                        "real_requests": real_requests,
+                        "cached_requests": cached_requests
+                    }, websocket)
+                    
+                except Exception as e:
+                    print(f"Ошибка при загрузке страницы {page}: {e}")
         
         await manager.send_message({
             "stage": "vacancies_loaded",
@@ -334,40 +333,38 @@ async def analyze_vacancies_with_progress(vacancies: List[Dict], technology: str
         "cached_requests": 0
     }, websocket)
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_vacancy = {
-            executor.submit(check_vacancy_for_tech, vacancy, tech_pattern): vacancy 
-            for vacancy in vacancies
-        }
-        
-        for future in concurrent.futures.as_completed(future_to_vacancy):
-            try:
-                result = future.result()
-                if result['has_tech']:
-                    tech_vacancies_details.append(result['vacancy_info'])
+    # Анализируем вакансии последовательно для корректной отправки прогресса
+    for vacancy in vacancies:
+        try:
+            result = check_vacancy_for_tech(vacancy, tech_pattern)
+            if result['has_tech']:
+                tech_vacancies_details.append(result['vacancy_info'])
+            
+            processed += 1
+            
+            # Отправляем прогресс каждые 10 вакансий или на последней
+            if processed % 10 == 0 or processed == total_vacancies:
+                progress = 50 + (45 * processed / total_vacancies)
+                real_requests, cached_requests = get_request_count()
+                cache_hit_rate = (cached_requests / (real_requests + cached_requests) * 100) if (real_requests + cached_requests) > 0 else 0
                 
-                processed += 1
+                print(f"Обработано {processed}/{total_vacancies} вакансий. Запросы: {real_requests} реальных, {cached_requests} кэшированных. Кэш: {cache_hit_rate:.1f}% попаданий")
                 
-                if processed % 20 == 0 or processed == total_vacancies:
-                    progress = 50 + (45 * processed / total_vacancies)
-                    real_requests, cached_requests = get_request_count()
-                    cache_hit_rate = (cached_requests / (real_requests + cached_requests) * 100) if (real_requests + cached_requests) > 0 else 0
-                    
-                    await manager.send_message({
-                        "stage": "analyzing",
-                        "message": f"Обработано вакансий: {processed}/{total_vacancies}",
-                        "progress": int(progress),
-                        "processed": processed,
-                        "total": total_vacancies,
-                        "found_with_tech": len(tech_vacancies_details),
-                        "real_requests": real_requests,
-                        "cached_requests": cached_requests,
-                        "cache_hit_rate": round(cache_hit_rate, 1)
-                    }, websocket)
-                    
-            except Exception as e:
-                print(f"Ошибка при анализе вакансии: {e}")
-                processed += 1
+                await manager.send_message({
+                    "stage": "analyzing",
+                    "message": f"Обработано вакансий: {processed}/{total_vacancies}, найдено с технологией: {len(tech_vacancies_details)}",
+                    "progress": int(progress),
+                    "processed": processed,
+                    "total": total_vacancies,
+                    "found_with_tech": len(tech_vacancies_details),
+                    "real_requests": real_requests,
+                    "cached_requests": cached_requests,
+                    "cache_hit_rate": round(cache_hit_rate, 1)
+                }, websocket)
+                
+        except Exception as e:
+            print(f"Ошибка при анализе вакансии {vacancy.get('id', 'unknown')}: {e}")
+            processed += 1
     
     tech_vacancies = len(tech_vacancies_details)
     
