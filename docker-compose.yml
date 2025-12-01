@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  techstats:
+    build: .
+    container_name: techstats
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  techstats-web:
+    build: .
+    container_name: techstats-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python -m http.server 8080

@@ -1,16 +1,15 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import List, Dict
 import requests
 import time
 import re
 from threading import Lock
 from datetime import datetime, timedelta
-import concurrent.futures
-import asyncio
-import json
 import uvicorn
+import asyncio
+import functools
 
 app = FastAPI(
     title="TechStats API",
@@ -96,12 +95,13 @@ class AnalysisResult(BaseModel):
     request_stats: Dict
 
 # Утилиты для работы с API
-def increment_request_counter(use_cache=False):
+async def increment_request_counter(use_cache=False):
     global request_counter, cached_requests_counter, last_request_time
     
     with counter_lock:
         if use_cache:
             cached_requests_counter += 1
+            return
         else:
             request_counter += 1
             current_time = time.time()
@@ -110,7 +110,7 @@ def increment_request_counter(use_cache=False):
                 time_since_last_request = current_time - last_request_time
                 if time_since_last_request < (1.0 / MAX_REQUESTS_PER_SECOND):
                     sleep_time = (1.0 / MAX_REQUESTS_PER_SECOND) - time_since_last_request
-                    time.sleep(sleep_time)
+                    await asyncio.sleep(sleep_time)
                 
                 last_request_time = time.time()
 
@@ -124,13 +124,13 @@ def reset_request_counters():
         request_counter = 0
         cached_requests_counter = 0
 
-def get_vacancy_description_cached(vacancy_id: str) -> str:
+async def get_vacancy_description_cached(vacancy_id: str) -> str:
     """Получение описания вакансии с проверкой актуальности кэша"""
     with cache_lock:
         if vacancy_id in description_cache:
             cache_entry = description_cache[vacancy_id]
             if not cache_entry.is_expired():
-                increment_request_counter(use_cache=True)
+                await increment_request_counter(use_cache=True)
                 return cache_entry.data
             else:
                 # Удаляем устаревшую запись
@@ -138,8 +138,8 @@ def get_vacancy_description_cached(vacancy_id: str) -> str:
     
     try:
         url = f"{HH_API_BASE_URL}/vacancies/{vacancy_id}"
-        response = requests.get(url, timeout=10)
-        increment_request_counter(use_cache=False)
+        response = await asyncio.to_thread(functools.partial(requests.get, url, timeout=10))
+        await increment_request_counter(use_cache=False)
         response.raise_for_status()
         data = response.json()
         description = data.get('description', '')
@@ -153,7 +153,7 @@ def get_vacancy_description_cached(vacancy_id: str) -> str:
             description_cache[vacancy_id] = CacheEntry("", datetime.now())
         return ""
 
-def fetch_single_page(search_text: str, area: int, per_page: int, page: int) -> List[Dict]:
+async def fetch_single_page(search_text: str, area: int, per_page: int, page: int) -> List[Dict]:
     params = {
         'text': search_text,
         'search_field': 'name',
@@ -163,11 +163,11 @@ def fetch_single_page(search_text: str, area: int, per_page: int, page: int) -> 
         'only_with_salary': False
     }
     
-    response = requests.get(f"{HH_API_BASE_URL}/vacancies", params=params, timeout=10)
-    increment_request_counter(use_cache=False)
+    response = await asyncio.to_thread(functools.partial(requests.get, f"{HH_API_BASE_URL}/vacancies", params=params, timeout=10))
+    await increment_request_counter(use_cache=False)
     response.raise_for_status()
     data = response.json()
-    time.sleep(REQUEST_DELAY)
+    await asyncio.sleep(REQUEST_DELAY)
     
     return data.get('items', [])
 
@@ -193,8 +193,8 @@ async def get_vacancies_with_progress(search_text: str, area: int, max_pages: in
     }
     
     try:
-        response = requests.get(f"{HH_API_BASE_URL}/vacancies", params=params, timeout=10)
-        increment_request_counter(use_cache=False)
+        response = await asyncio.to_thread(functools.partial(requests.get, f"{HH_API_BASE_URL}/vacancies", params=params, timeout=10))
+        await increment_request_counter(use_cache=False)
         response.raise_for_status()
         data = response.json()
         
@@ -221,7 +221,7 @@ async def get_vacancies_with_progress(search_text: str, area: int, max_pages: in
             # Загружаем страницы последовательно с прогрессом
             for page in pages_to_load:
                 try:
-                    page_vacancies = fetch_single_page(search_text, area, 100, page)
+                    page_vacancies = await fetch_single_page(search_text, area, 100, page)
                     vacancies.extend(page_vacancies)
                     completed_pages += 1
                     
@@ -266,7 +266,7 @@ async def get_vacancies_with_progress(search_text: str, area: int, max_pages: in
         }, websocket)
         raise HTTPException(status_code=500, detail=f"Ошибка при получении вакансий: {str(e)}")
 
-def check_vacancy_for_tech(vacancy: Dict, tech_pattern) -> Dict:
+async def check_vacancy_for_tech(vacancy: Dict, tech_pattern) -> Dict:
     vacancy_id = vacancy.get('id')
     vacancy_name = vacancy.get('name', '')
     vacancy_url = vacancy.get('alternate_url', '')
@@ -299,7 +299,9 @@ def check_vacancy_for_tech(vacancy: Dict, tech_pattern) -> Dict:
         }
     
     # Проверяем полное описание
-    description = get_vacancy_description_cached(vacancy_id).lower()
+    if not vacancy_id:
+        return {'has_tech': False, 'vacancy_info': None}
+    description = (await get_vacancy_description_cached(vacancy_id)).lower()
     if tech_pattern.search(description):
         return {
             'has_tech': True,
@@ -336,7 +338,7 @@ async def analyze_vacancies_with_progress(vacancies: List[Dict], technology: str
     # Анализируем вакансии последовательно для корректной отправки прогресса
     for vacancy in vacancies:
         try:
-            result = check_vacancy_for_tech(vacancy, tech_pattern)
+            result = await check_vacancy_for_tech(vacancy, tech_pattern)
             if result['has_tech']:
                 tech_vacancies_details.append(result['vacancy_info'])
             
