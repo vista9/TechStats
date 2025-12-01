@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
-import requests
+import requests # type: ignore
 import time
 import re
 from threading import Lock
@@ -426,26 +426,6 @@ async def get_global_settings():
         "cache_ttl_hours": CACHE_TTL_HOURS
     }
 
-@app.post("/settings")
-async def update_global_settings(settings: GlobalSettings):
-    """Обновить глобальные настройки"""
-    global MAX_WORKERS, REQUEST_DELAY, MAX_REQUESTS_PER_SECOND, CACHE_TTL_HOURS
-    
-    MAX_WORKERS = settings.max_workers
-    REQUEST_DELAY = settings.request_delay
-    MAX_REQUESTS_PER_SECOND = settings.max_requests_per_second
-    CACHE_TTL_HOURS = settings.cache_ttl_hours
-    
-    return {
-        "message": "Настройки успешно обновлены",
-        "settings": {
-            "max_workers": MAX_WORKERS,
-            "request_delay": REQUEST_DELAY,
-            "max_requests_per_second": MAX_REQUESTS_PER_SECOND,
-            "cache_ttl_hours": CACHE_TTL_HOURS
-        }
-    }
-
 @app.get("/health")
 async def health_check():
     # Очищаем устаревшие записи из кэша
@@ -476,6 +456,12 @@ async def websocket_analyze(websocket: WebSocket):
         exact_search = data.get('exact_search', True)
         area = data.get('area', 113)
         max_pages = data.get('max_pages', 10)
+
+        global MAX_WORKERS, REQUEST_DELAY, MAX_REQUESTS_PER_SECOND, CACHE_TTL_HOURS
+        MAX_WORKERS = data.get('max_workers', MAX_WORKERS)
+        REQUEST_DELAY = data.get('request_delay', REQUEST_DELAY)
+        MAX_REQUESTS_PER_SECOND = data.get('max_requests_per_second', MAX_REQUESTS_PER_SECOND)
+        CACHE_TTL_HOURS = data.get('cache_ttl_hours', CACHE_TTL_HOURS)
         
         # Формируем поисковый запрос
         if exact_search:

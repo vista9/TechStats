@@ -469,9 +469,25 @@
 
     <script>
         const WS_URL = 'ws://localhost:8000/ws/analyze';
+        const SETTINGS_URL = 'http://localhost:8000/settings';
+        
         let websocket = null;
         let startTime = null;
         let progressInterval = null;
+
+        window.onload = () => {
+            fetch(SETTINGS_URL)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('requestDelay').value = data.request_delay;
+                    document.getElementById('maxRequestsPerSecond').value = data.max_requests_per_second;
+                    document.getElementById('cacheTTL').value = data.cache_ttl_hours;
+                    document.getElementById('maxWorkers').value = data.max_workers;
+                })
+                .catch(error => {
+                    console.error('Ошибка загрузки настроек:', error);
+                });
+        };
 
         document.getElementById('analysisForm').addEventListener('submit', async (e) => {
             e.preventDefault();
